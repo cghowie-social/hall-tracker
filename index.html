@@ -159,7 +159,7 @@ function renderTeacher() {
 }
 
 /* ---------- Student: connects straight to the teacher's page ---------- */
-let speer = null, conn = null, up = false, last = 0, rt = null;
+let speer = null, conn = null, up = false, last = 0, rt = null, pendingJoin = null;
 const send = m => { if (conn && conn.open) { conn.send(m); return true; } connectT(); say("Reconnecting... please try again in a moment."); return false; };
 function hall() { $("sHall").textContent = !up ? "Connecting to your teacher’s page…" : cur ? cur.name + " is in the hallway." : "The hallway is clear."; }
 function later() { clearTimeout(rt); rt = setTimeout(connectT, 2500); }
@@ -167,8 +167,8 @@ function connectT() {
   if (!speer || !speer.id) return;
   if (conn && conn.open) return;
   try { if (conn) conn.close(); } catch (e) {}
-  conn = speer.connect(tid, { reliable: true });
-  conn.on("open", () => { up = true; last = Date.now(); say(""); conn.send({ t: "hello", sid }); hall(); renderStudent(); });
+  conn = speer.connect(tid);
+  conn.on("open", () => { up = true; last = Date.now(); say(""); conn.send({ t: "hello", sid }); if(pendingJoin){ conn.send(pendingJoin); pendingJoin=null; } hall(); renderStudent(); });
   conn.on("data", m => {
     last = Date.now();
     if (m.t === "err") { say(m.msg); return; }
@@ -202,7 +202,7 @@ function renderStudent() {
     const inp = el("input", { type: "text", id: "nm", maxLength: 40, placeholder: "Your first name", value: typed, autocomplete: "off" }); inp.setAttribute("aria-label", "Your name");
     c.append(el("h2", { textContent: "Join the bathroom list" }), el("form", { className: "add", onsubmit: e => {
       e.preventDefault(); const name = inp.value.trim(); if (!name) { say("Enter your name."); return; }
-      ls.set("hp2-name", name); prep(); say(""); send({ t: "join", sid, name }); } }, inp, el("button", { className: "primary", type: "submit", textContent: "Join the list" })));
+      ls.set("hp2-name", name); prep(); say(""); pendingJoin={ t: "join", sid, name }; send(pendingJoin); } }, inp, el("button", { className: "primary", type: "submit", textContent: "Join the list" })));
   }
   tick();
 }
