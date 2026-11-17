@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hall pass tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+:root{--bg:#eef3f1;--surface:#fff;--ink:#14211c;--muted:#566860;--line:#cddad4;--accent:#1f6f54;--accent-ink:#fff;--warn:#a63d0a;--warn-bg:#fde8da;--ok-bg:#dcf0e6;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1613;--surface:#17221e;--ink:#e7f0ec;--muted:#98aba3;--line:#2a3a34;--accent:#4cc196;--accent-ink:#06150f;--warn:#ff9b66;--warn-bg:#3a2214;--ok-bg:#16322a;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Trebuchet MS","Segoe UI",system-ui,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:0 0 2px}h2{font-size:1.05rem;margin:0 0 12px}
+.sub,.muted,.empty{color:var(--muted)}.sub{margin:0 0 18px}.muted{font-size:.9rem}.empty{margin:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:16px}
+.grid{display:grid;grid-template-columns:3fr 2fr;gap:16px}.grid .card{margin-top:0}
+@media (max-width:720px){.grid{grid-template-columns:1fr}}
+form.add{display:flex;gap:8px;flex-wrap:wrap}
+input[type=text],input[type=number]{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+input[type=text]{flex:1;min-width:180px}input[type=number]{width:4.5rem}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:10px 14px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+button.small{padding:5px 10px;font-size:.88rem}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.msg{color:var(--warn);min-height:1.4em;margin:8px 0 0;font-size:.92rem}
+.out{background:var(--ok-bg);border-color:var(--accent)}.out.over{background:var(--warn-bg);border-color:var(--warn)}
+.out .name{font-size:1.6rem;font-weight:700;margin:0}
+.out .time{font-size:4.6rem;font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums;margin:6px 0}
+.out.over .time{color:var(--warn)}
+.flag{font-weight:700;color:var(--warn);display:none}.out.over .flag{display:block}
+ol.queue{margin:0;padding-left:1.4rem}ol.queue li{padding:8px 0;border-bottom:1px solid var(--line)}ol.queue li:last-child{border-bottom:0}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.stats{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:12px}.stats b{display:block;font-size:1.4rem;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--muted);font-size:.9rem}td.d{font-variant-numeric:tabular-nums;font-weight:700}td.d.over{color:var(--warn)}
+.wrap{overflow-x:auto}.settings{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.qr{background:#fff;padding:8px;border-radius:8px;display:inline-block}.qr svg{width:220px;height:auto;display:block}
+.big{font-size:1.7rem;font-weight:700;margin:0 0 6px}.narrow{max-width:520px;margin:0 auto}
+.alertbar{background:var(--warn-bg);color:var(--warn);border:3px solid var(--warn);border-radius:12px;padding:16px;font-size:1.3rem;font-weight:700;margin-bottom:16px}
+</style>
+</head>
+<body>
+<main>
+<div id="teacher" hidden>
+  <h1>Hall pass tracker</h1>
+  <p class="sub">Keep this page open during class. <span id="peerStatus">Connecting…</span></p>
+  <div class="grid">
+    <section class="card out" id="outCard" aria-live="polite"><h2>In the hallway</h2><div id="outBody"></div></section>
+    <section class="card"><h2>Waiting list</h2><div id="queueBody"></div>
+      <form class="add" id="addForm" style="margin-top:12px"><input type="text" id="name" maxlength="40" placeholder="Add a student by hand" aria-label="Student name" autocomplete="off"><button type="submit">Add</button></form>
+      <p class="msg" id="msgT" role="status"></p></section>
+  </div>
+  <section class="card"><div class="row" style="align-items:flex-start;flex-wrap:wrap;gap:16px">
+    <div><h2>Student sign-up</h2><p class="muted" style="max-width:46ch">Project or print this code. Students scan it with their phone camera, enter a first name, and see their place in line. No account needed.</p><p class="muted" id="qrUrl" style="word-break:break-all;max-width:46ch"></p></div>
+    <div class="qr" id="qr" aria-label="QR code for student sign-up"></div></div></section>
+  <section class="card"><h2>Break log</h2>
+    <div class="stats"><div><b id="sTrips">0</b><span class="muted">trips today</span></div><div><b id="sAvg">0:00</b><span class="muted">average time out</span></div><div><b id="sMax">0:00</b><span class="muted">longest</span></div></div>
+    <div class="wrap"><table><thead><tr><th>Student</th><th>Left</th><th>Back</th><th>Time out</th></tr></thead><tbody id="logBody"></tbody></table></div>
+    <p class="empty" id="logEmpty">No breaks logged yet.</p>
+    <div class="settings"><label>Time limit <input type="number" id="limit" min="1" max="60"> minutes</label>
+      <label><input type="checkbox" id="auto"> Send the next student automatically</label>
+      <button class="small" id="clear" type="button">Clear log</button></div></section>
+</div>
+
+<div id="student" class="narrow" hidden>
+  <h1>Bathroom sign-up</h1>
+  <p class="sub" id="sHall">Connecting to your teacher’s page…</p>
+  <div class="alertbar" id="alertBar" role="alert" hidden></div>
+  <section class="card" id="sCard" aria-live="polite" style="margin-top:0"></section>
+  <p class="msg" id="msgS" role="status"></p>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+const clock = t => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const ord = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? "th" : ["th","st","nd","rd","th","th","th","th","th","th"][n % 10]);
+const ls = { get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+function el(tag, props, ...kids) { const e = document.createElement(tag); Object.assign(e, props || {}); kids.forEach(k => e.append(k)); return e; }
+const say = t => { $("msgT").textContent = t; $("msgS").textContent = t; };
+const rid = () => Math.random().toString(36).slice(2, 12);
+const tid = new URLSearchParams(location.search).get("t");
+const isStudent = !!tid;
+let cur = null, q = [], log = [], limit = ls.get("hp2-limit", 5), auto = ls.get("hp2-auto", true), off = 0;
+let alerted = null, audio = null, lock = null, sig = "";
+const now = () => Date.now() + off;
+const limitMs = () => limit * 60000;
+const sid = ls.get("hp2-sid", "") || "s" + rid();
+ls.set("hp2-sid", sid);
+
+/* ---------- Teacher: this page is the server ---------- */
+const conns = new Set();
+let tpeer = null, tpid = ls.get("hp2-tid", "") || "hallpass-" + rid();
+ls.set("hp2-tid", tpid);
+const stateMsg = () => ({ t: "state", cur, q, limit, now: Date.now() });
+function broadcast() { const m = stateMsg(); conns.forEach(c => { try { if (c.open) c.send(m); } catch (e) {} }); $("peerStatus").textContent = conns.size + " phone" + (conns.size === 1 ? "" : "s") + " connected."; }
+function commit() { ls.set("hp2-state", { cur, q, log }); renderTeacher(); broadcast(); }
+function go(n) { cur = { name: n.name, start: Date.now(), rid: n.id }; q = q.filter(x => x.id !== n.id); commit(); }
+function back() {
+  if (!cur) return;
+  log.unshift({ name: cur.name, start: cur.start, end: Date.now() }); log = log.slice(0, 200); cur = null;
+  if (auto && q.length) go(q[0]); else commit();
+}
+function addByHand(name) {
+  name = name.trim(); if (!name) { say("Enter a student name."); return; }
+  const n = name.toLowerCase();
+  if ((cur && cur.name.toLowerCase() === n) || q.some(x => x.name.toLowerCase() === n)) { say(name + " is already out or on the list."); return; }
+  say(""); q.push({ id: "m" + Date.now(), name, added: Date.now() }); commit();
+}
+function onMsg(c, m) {
+  if (!m || typeof m !== "object") return;
+  if (m.t === "hello") { c.send(stateMsg()); return; }
+  const id = String(m.sid || "").slice(0, 40);
+  if (m.t === "leave") { q = q.filter(x => x.id !== id); commit(); return; }
+  if (m.t !== "join") return;
+  const name = String(m.name || "").trim().slice(0, 40), n = name.toLowerCase();
+  if (!name || !id) return;
+  if ((cur && cur.rid === id) || q.some(x => x.id === id)) { c.send(stateMsg()); return; }
+  if ((cur && cur.name.toLowerCase() === n) || q.some(x => x.name.toLowerCase() === n)) { c.send({ t: "err", msg: name + " is already on the list. Add your last initial." }); return; }
+  if (q.length >= 60) { c.send({ t: "err", msg: "The list is full." }); return; }
+  q.push({ id, name, added: Date.now() }); commit();
+}
+function startTeacherPeer() {
+  if (tpeer) { try { tpeer.destroy(); } catch (e) {} }
+  tpeer = new Peer(tpid);
+  tpeer.on("open", () => { $("peerStatus").textContent = "Ready for students."; });
+  tpeer.on("connection", c => { conns.add(c); c.on("open", () => { c.send(stateMsg()); broadcast(); }); c.on("data", m => onMsg(c, m)); c.on("close", () => { conns.delete(c); broadcast(); }); c.on("error", () => conns.delete(c)); });
+  tpeer.on("disconnected", () => { try { tpeer.reconnect(); } catch (e) {} });
+  tpeer.on("error", e => {
+    if (e.type === "unavailable-id") { $("peerStatus").textContent = "Reconnecting to the sign-up service…"; setTimeout(startTeacherPeer, 4000); }
+    else $("peerStatus").textContent = "Sign-up service problem (" + e.type + "). Reload the page to retry.";
+  });
+}
+function renderTeacher() {
+  const ob = $("outBody"); ob.replaceChildren();
+  if (cur) {
+    const t = el("div", { className: "time t", textContent: "0:00" }); t.dataset.since = cur.start;
+    ob.append(el("p", { className: "name", textContent: cur.name }), t, el("p", { className: "flag", textContent: "Over the " + limit + "-minute limit" }), el("button", { className: "primary", textContent: "Back in class", onclick: back }));
+  } else if (q.length) {
+    ob.append(el("p", { className: "empty", textContent: "No one is out. " + q[0].name + " is next." }), el("button", { className: "primary", textContent: "Send " + q[0].name, onclick: () => go(q[0]) }));
+  } else ob.append(el("p", { className: "empty", textContent: "The hallway is clear." }));
+  const qb = $("queueBody"); qb.replaceChildren();
+  if (q.length) {
+    const ol = el("ol", { className: "queue" });
+    q.forEach(x => { const t = el("span", { className: "muted t", textContent: "0:00" }); t.dataset.since = x.added;
+      ol.append(el("li", {}, el("div", { className: "row" }, el("span", {}, x.name + " ", t), el("button", { className: "small", textContent: "Remove", onclick: () => { q = q.filter(y => y.id !== x.id); commit(); } })))); });
+    qb.append(ol);
+  } else qb.append(el("p", { className: "empty", textContent: "No one is waiting." }));
+  const lb = $("logBody"); lb.replaceChildren();
+  log.forEach(l => { const d = l.end - l.start, over = d > limitMs();
+    lb.append(el("tr", {}, el("td", { textContent: l.name }), el("td", { textContent: clock(l.start) }), el("td", { textContent: clock(l.end) }), el("td", { className: "d" + (over ? " over" : ""), textContent: fmt(d) + (over ? " (over limit)" : "") }))); });
+  $("logEmpty").style.display = log.length ? "none" : "block";
+  const day = new Date().toDateString();
+  const ds = log.filter(l => new Date(l.start).toDateString() === day).map(l => l.end - l.start);
+  $("sTrips").textContent = ds.length; $("sAvg").textContent = fmt(ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : 0); $("sMax").textContent = fmt(ds.length ? Math.max(...ds) : 0);
+  tick();
+}
+
+/* ---------- Student: connects straight to the teacher's page ---------- */
+let speer = null, conn = null, up = false, last = 0, rt = null;
+const send = m => { if (conn && conn.open) { conn.send(m); return true; } say("Not connected yet. Try again in a moment."); return false; };
+function hall() { $("sHall").textContent = !up ? "Connecting to your teacher’s page…" : cur ? cur.name + " is in the hallway." : "The hallway is clear."; }
+function later() { clearTimeout(rt); rt = setTimeout(connectT, 2500); }
+function connectT() {
+  if (!speer || !speer.id) return;
+  try { if (conn) conn.close(); } catch (e) {}
+  conn = speer.connect(tid, { reliable: true });
+  conn.on("open", () => { up = true; last = Date.now(); say(""); conn.send({ t: "hello", sid }); hall(); });
+  conn.on("data", m => {
+    last = Date.now();
+    if (m.t === "err") { say(m.msg); return; }
+    if (m.t !== "state") return;
+    off = m.now - Date.now(); cur = m.cur; q = m.q || []; limit = m.limit || 5; hall();
+    const s = JSON.stringify([cur, q, limit]); if (s !== sig) { sig = s; renderStudent(); }
+  });
+  conn.on("close", () => { up = false; hall(); later(); });
+  conn.on("error", () => {});
+}
+function startStudentPeer() {
+  speer = new Peer();
+  speer.on("open", connectT);
+  speer.on("disconnected", () => { try { speer.reconnect(); } catch (e) {} });
+  speer.on("error", e => { up = false; hall(); if (e.type === "peer-unavailable") { say("Your teacher’s page isn’t open yet. Retrying…"); later(); } else say("Connection problem (" + e.type + ")."); });
+  setInterval(() => { if (up && Date.now() - last > 9000) { up = false; hall(); connectT(); } }, 3000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !up) connectT(); });
+}
+function renderStudent() {
+  const c = $("sCard"), typed = $("nm") ? $("nm").value : ls.get("hp2-name", ""); c.replaceChildren(); hall();
+  $("alertBar").hidden = !(cur && cur.rid === sid && alerted === cur.start);
+  const i = q.findIndex(x => x.id === sid);
+  if (cur && cur.rid === sid) {
+    const t = el("div", { className: "big t", textContent: "0:00" }); t.dataset.since = cur.start; keepAwake();
+    c.append(el("p", { className: "big", textContent: "You’re up. Go ahead." }), t, el("p", { className: "muted", textContent: "Your timer is running. Tell your teacher when you’re back." }));
+  } else if (i >= 0) {
+    c.append(el("p", { className: "big", textContent: "You’re " + ord(i + 1) + " in line." }),
+      el("p", { className: "muted", textContent: i === 0 ? "You’re next. Wait for your teacher to send you." : i + (i === 1 ? " student is" : " students are") + " ahead of you." }),
+      el("button", { textContent: "Leave the list", onclick: () => send({ t: "leave", sid }) }));
+  } else {
+    const inp = el("input", { type: "text", id: "nm", maxLength: 40, placeholder: "Your first name", value: typed, autocomplete: "off" }); inp.setAttribute("aria-label", "Your name");
+    c.append(el("h2", { textContent: "Join the bathroom list" }), el("form", { className: "add", onsubmit: e => {
+      e.preventDefault(); const name = inp.value.trim(); if (!name) { say("Enter your name."); return; }
+      ls.set("hp2-name", name); prep(); say(""); send({ t: "join", sid, name }); } }, inp, el("button", { className: "primary", type: "submit", textContent: "Join the list" })));
+  }
+  tick();
+}
+function prep() {
+  try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { audio = audio || new AC(); audio.resume(); } } catch (e) {}
+  try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
+}
+async function keepAwake() { try { if (navigator.wakeLock && !lock) { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } } catch (e) {} }
+function fireAlert() {
+  const m = limit + " minutes are up. Time to head back to class.";
+  const b = $("alertBar"); b.textContent = m; b.hidden = false;
+  try { if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]); } catch (e) {}
+  try { if (audio) [0, .35, .7].forEach(d => { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 880; g.gain.value = .25; o.connect(g); g.connect(audio.destination); o.start(audio.currentTime + d); o.stop(audio.currentTime + d + .2); }); } catch (e) {}
+  try { if (window.Notification && Notification.permission === "granted") new Notification("Time’s up", { body: m }); } catch (e) {}
+}
+function tick() {
+  const n = now();
+  document.querySelectorAll(".t").forEach(e => { e.textContent = fmt(n - Number(e.dataset.since)); });
+  if (!isStudent) $("outCard").classList.toggle("over", !!cur && n - cur.start > limitMs());
+  else if (cur && cur.rid === sid && n - cur.start >= limitMs() && alerted !== cur.start) { alerted = cur.start; fireAlert(); }
+}
+
+if (isStudent) {
+  $("student").hidden = false; renderStudent(); startStudentPeer();
+} else {
+  $("teacher").hidden = false;
+  const saved = ls.get("hp2-state", null);
+  if (saved) { cur = saved.cur || null; q = saved.q || []; log = saved.log || []; }
+  const link = location.origin + location.pathname + "?t=" + tpid;
+  if (/^https?:$/.test(location.protocol)) {
+    $("qrUrl").textContent = link;
+    if (typeof qrcode === "function") { const qr = qrcode(0, "M"); qr.addData(link); qr.make(); $("qr").innerHTML = qr.createSvgTag(5, 4); }
+  } else $("qrUrl").textContent = "Open this page from its web address (https://…), not from a file on your computer, so the QR code works.";
+  $("limit").value = limit; $("auto").checked = auto;
+  $("addForm").addEventListener("submit", e => { e.preventDefault(); addByHand($("name").value); $("name").value = ""; });
+  $("limit").addEventListener("change", e => { limit = Math.max(1, Math.min(60, Number(e.target.value) || 5)); ls.set("hp2-limit", limit); commit(); });
+  $("auto").addEventListener("change", e => { auto = e.target.checked; ls.set("hp2-auto", auto); });
+  let armed = false;
+  $("clear").addEventListener("click", e => {
+    if (!armed) { armed = true; e.target.textContent = "Click again to clear the log"; setTimeout(() => { armed = false; e.target.textContent = "Clear log"; }, 4000); return; }
+    armed = false; e.target.textContent = "Clear log"; log = []; commit();
+  });
+  renderTeacher(); startTeacherPeer(); setInterval(broadcast, 3000);
+}
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
