@@ -160,11 +160,12 @@ function renderTeacher() {
 
 /* ---------- Student: connects straight to the teacher's page ---------- */
 let speer = null, conn = null, up = false, last = 0, rt = null;
-const send = m => { if (conn && conn.open) { conn.send(m); return true; } say("Not connected yet. Try again in a moment."); return false; };
+const send = m => { if (conn && conn.open) { conn.send(m); return true; } connectT(); say("Reconnecting... please try again in a moment."); return false; };
 function hall() { $("sHall").textContent = !up ? "Connecting to your teacher’s page…" : cur ? cur.name + " is in the hallway." : "The hallway is clear."; }
 function later() { clearTimeout(rt); rt = setTimeout(connectT, 2500); }
 function connectT() {
   if (!speer || !speer.id) return;
+  if (conn && conn.open) return;
   try { if (conn) conn.close(); } catch (e) {}
   conn = speer.connect(tid, { reliable: true });
   conn.on("open", () => { up = true; last = Date.now(); say(""); conn.send({ t: "hello", sid }); hall(); renderStudent(); });
