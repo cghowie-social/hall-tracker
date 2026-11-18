@@ -66,6 +66,7 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px}
     <p class="empty" id="logEmpty">No breaks logged yet.</p>
     <div class="settings"><label>Time limit <input type="number" id="limit" min="1" max="60"> minutes</label>
       <label><input type="checkbox" id="auto"> Send the next student automatically</label>
+      <button class="small" id="export" type="button">Download log (CSV)</button>
       <button class="small" id="clear" type="button">Clear log</button></div></section>
 </div>
 
@@ -187,7 +188,7 @@ async function poll() {
   if (document.hidden && sig) return;
   try {
     const jobs = [api("GET", "hp_requests?select=*&order=added.asc"), api("GET", "hp_state?select=*")];
-    if (!student) jobs.push(api("GET", "hp_log?select=*&order=start_ms.desc&limit=100"));
+    if (!student) jobs.push(api("GET", "hp_log?select=*&order=start_ms.desc&limit=500"));
     const [reqs, st, lg] = await Promise.all(jobs);
     q = reqs || [];
     const row = id => ((st || []).find(r => r.id === id) || {}).data || null;
@@ -212,6 +213,13 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   api("POST", "hp_state?on_conflict=id", [{ id: "settings", data: { limit } }], UP).catch(() => {});
   $("addForm").addEventListener("submit", e => { e.preventDefault(); const v = $("name").value; $("name").value = ""; run(() => addByHand(v)); });
   $("limit").addEventListener("change", e => { limit = Math.max(1, Math.min(60, Number(e.target.value) || 5)); ls.set("hp3-limit", limit); run(() => api("POST", "hp_state?on_conflict=id", [{ id: "settings", data: { limit } }], UP)); });
+  $("export").addEventListener("click", () => {
+    const esc = v => { v = String(v); if (/^[=+\-@]/.test(v)) v = "'" + v; return '"' + v.replace(/"/g, '""') + '"'; };
+    const rows = [["Student", "Date", "Left", "Back", "Minutes out"]].concat(log.slice().reverse().map(l => [l.name, new Date(l.start_ms).toLocaleDateString(), clock(l.start_ms), clock(l.end_ms), ((l.end_ms - l.start_ms) / 60000).toFixed(1)]));
+    const csv = "\ufeff" + rows.map(r => r.map(esc).join(",")).join("\r\n");
+    const a = el("a", { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: "bathroom-log-" + new Date().toISOString().slice(0, 10) + ".csv" });
+    document.body.append(a); a.click(); a.remove();
+  });
   $("auto").addEventListener("change", e => { auto = e.target.checked; ls.set("hp3-auto", auto); });
   let armed = false;
   $("clear").addEventListener("click", e => {
